@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import mcip_train as M
-from distill_loss_apple import apple_distillation_loss
 from distill_dataset import DistillDataset, collate_drop_none
 from distill_loss_dual import dual_teacher_loss
 
@@ -49,7 +48,9 @@ def parse_args():
                     help="path to a checkpoint (.pth) to load into the student "
                          "before training — continue from an already-distilled "
                          "model instead of the pretrained base.")
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=2,
+                    help="DataLoader workers. Keep LOW (2) — the mmap teacher "
+                         "reads plus many workers can exhaust RAM.")
     ap.add_argument("--grad_checkpoint", action="store_true",
                     help="enable gradient checkpointing on the student (saves "
                          "memory, allows larger batch)")
@@ -73,7 +74,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     device = "cuda"
 
-    # load STUDENT: both towers trainable (do NOT apply the MCIP freeze) 
+    # load STUDENT: both towers trainable (do NOT apply the MCIP freeze)
     if args.clip_lib:
         # deployment-faithful: OpenAI clip-library RN50 (QuickGELU, fp32)
         model, preprocess, tokenizer, emb_dim = load_clip_library_student(
@@ -98,24 +99,18 @@ def main():
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"student '{args.student}' | trainable params: {n_train:,} | emb_dim={emb_dim}")
 
-    # load TWO teacher caches: S4 (T2I ref, img+txt) and S2 (I2I ref, img only)
-    s4_img = np.load(os.path.join(args.s4_dir, "img_feats_mobileclip2_s4.npy"))
-    s4_txt = np.load(os.path.join(args.s4_dir, "text_feats_mobileclip2_s4.npy"))
+    s4_img = np.load(os.path.join(args.s4_dir, "img_feats_mobileclip2_s4.npy"), mmap_mode='r')
+    s4_txt = np.load(os.path.join(args.s4_dir, "text_feats_mobileclip2_s4.npy"), mmap_mode='r')
     s4_valid = np.load(os.path.join(args.s4_dir, "valid_mobileclip2_s4.npy")).astype(bool)
-    s2_img = np.load(os.path.join(args.s2_dir, "img_feats_mobileclip2_s2.npy"))
+    s2_img = np.load(os.path.join(args.s2_dir, "img_feats_mobileclip2_s2.npy"), mmap_mode='r')
     s2_valid = np.load(os.path.join(args.s2_dir, "valid_mobileclip2_s2.npy")).astype(bool)
 
     # a pair is usable only if valid in BOTH teachers
     valid = s4_valid & s2_valid
     print(f"S4 valid={s4_valid.sum():,}  S2 valid={s2_valid.sum():,}  BOTH={valid.sum():,}")
-    print(f"S4 img {s4_img.shape} txt {s4_txt.shape} | S2 img {s2_img.shape}")
+    print(f"S4 img {s4_img.shape} txt {s4_txt.shape} | S2 img {s2_img.shape} (mmap, on disk)")
 
-    # CPU pinned, indexed by ORIGINAL pair index
-    t_s4_img = torch.from_numpy(s4_img).float().pin_memory()
-    t_s4_txt = torch.from_numpy(s4_txt).float().pin_memory()
-    t_s2_img = torch.from_numpy(s2_img).float().pin_memory()
-
-    # dataset / loader: live images + caption + ORIGINAL pair index 
+    # dataset / loader: live images + caption + ORIGINAL pair index
     ds = DistillDataset(args.pairs_dir, preprocess, valid_mask=valid)
     loader = DataLoader(ds, batch_size=args.batch, shuffle=True,
                         num_workers=args.workers, pin_memory=True,
@@ -144,11 +139,17 @@ def main():
                 tokens = tokenizer(caps).to(device)
             s_txt = F.normalize(model.encode_text(tokens).float(), dim=-1)
 
+            # gather ONLY this batch's teacher rows from the mmap. .copy()
+            # materializes just those ~batch rows into RAM (a few hundred KB),
+            # NOT the whole 13GB array. .float() then applies only to that slice.
             with torch.no_grad():
-                idxs_cpu = idxs.cpu()
-                s4_i = F.normalize(t_s4_img[idxs_cpu].to(device, non_blocking=True), dim=-1)
-                s4_t = F.normalize(t_s4_txt[idxs_cpu].to(device, non_blocking=True), dim=-1)
-                s2_i = F.normalize(t_s2_img[idxs_cpu].to(device, non_blocking=True), dim=-1)
+                idxs_np = idxs.cpu().numpy()
+                s4_i = F.normalize(torch.from_numpy(s4_img[idxs_np].copy()).float()
+                                   .to(device, non_blocking=True), dim=-1)
+                s4_t = F.normalize(torch.from_numpy(s4_txt[idxs_np].copy()).float()
+                                   .to(device, non_blocking=True), dim=-1)
+                s2_i = F.normalize(torch.from_numpy(s2_img[idxs_np].copy()).float()
+                                   .to(device, non_blocking=True), dim=-1)
 
             loss, parts = dual_teacher_loss(
                 s_img, s_txt,          # student (both towers)
