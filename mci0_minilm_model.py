@@ -1,21 +1,10 @@
 """
-mci0_minilm_model.py
-===============================================================================
 A NEW small/fast vision-language model:
     image tower: MCi0  (MobileCLIP2-S0's image encoder, via timm)  -> 1024-d
     text  tower: all-MiniLM-L6-v2 (sentence-transformers)          ->  384-d
     projectors : two trainable MLPs mapping each tower into a shared 512-d space
 
 Trained (encoders + projectors, all trainable) by distilling from MCIP-SigLIP2.
-
-KEY DESIGN POINTS (easy to get wrong):
- 1. MCi0 preprocessing = IDENTITY norm (mean 0, std 1), 256px, bicubic. NOT ImageNet
-    norm. (Verified earlier from the MobileCLIP2 pretrained_cfg.)
- 2. MiniLM outputs TOKEN embeddings -> must MEAN-POOL over tokens (masked by the
-    attention mask) to get one 384-d sentence vector, THEN project. This is the
-    sentence-transformers pooling; skipping/mis-masking it silently wrecks text quality.
- 3. Both projected embeddings are L2-normalized before the loss (cosine space).
- 4. Everything trainable: MCi0, MiniLM, both projectors.
 """
 import torch
 import torch.nn as nn
@@ -55,26 +44,26 @@ class MCi0MiniLM(nn.Module):
         self.device = device
         self.shared_dim = shared_dim
 
-        # ---- IMAGE tower: MCi0 via timm (MobileCLIP2 contrastive weights) ----
+        # IMAGE tower: MCi0 via timm (MobileCLIP2 contrastive weights) 
         import timm
         self.image_encoder = timm.create_model(
             "fastvit_mci0.apple_mclip2_dfndr2b", pretrained=True, num_classes=0)
         img_dim = 1024                                    # MCi0 output dim
 
-        # ---- TEXT tower: MiniLM via HF transformers ----
+        # TEXT tower: MiniLM via HF transformers 
         from transformers import AutoModel, AutoTokenizer
         self.text_encoder = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
         self.tokenizer     = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
         txt_dim = 384                                     # MiniLM output dim
 
-        # ---- projectors (trainable, random init) ----
+        # projectors (trainable, random init) 
         self.image_proj = Projector(img_dim, shared_dim)
         self.text_proj  = Projector(txt_dim, shared_dim)
 
         # CLIP-style learnable temperature for the anchor loss
         self.logit_scale = nn.Parameter(torch.ones([]) * torch.log(torch.tensor(1/0.07)))
 
-    # ---- image preprocessing transform (use in the dataloader) ----
+    # image preprocessing transform (use in the dataloader) 
     def image_transform(self, image_size=256):
         from torchvision import transforms
         return transforms.Compose([
