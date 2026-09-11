@@ -1,14 +1,6 @@
 import torch
 
-
 def similarity_matrices(img, txt):
-    """
-    Args:
-        img : (B, D) tensor, unit-norm image embeddings
-        txt : (B, D) tensor, unit-norm text embeddings
-    Returns:
-        S_ii, S_tt, S_it : three (B, B) raw-cosine similarity matrices
-    """
     if img.shape != txt.shape:
         raise ValueError(f"img {tuple(img.shape)} and txt {tuple(txt.shape)} "
                          f"must have the same shape")
