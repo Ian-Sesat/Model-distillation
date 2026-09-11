@@ -3,12 +3,6 @@ import torch.nn.functional as F
 
 
 def _cross_kl(student_A, student_B, teacher_A, teacher_B, tau_t, tau_s):
-    """
-    One cross-modal KL direction.
-      teacher distribution: softmax( teacher_A @ teacher_B^T / tau_t )
-      student log-dist    : log_softmax( student_A @ student_B^T / tau_s )
-      KL(teacher || student), averaged over rows (batchmean).
-    """
     teacher_logits = (teacher_A @ teacher_B.t()) / tau_t
     student_logits = (student_A @ student_B.t()) / tau_s
     teacher_p    = F.softmax(teacher_logits, dim=1)
@@ -17,10 +11,6 @@ def _cross_kl(student_A, student_B, teacher_A, teacher_B, tau_t, tau_s):
 
 
 def _same_modality_kl(student_emb, teacher_emb, tau_t, tau_s):
-    """
-    Image-image (or text-text) relational KL with the DIAGONAL MASKED OUT.
-
-    """
     B = student_emb.size(0)
     mask = ~torch.eye(B, dtype=torch.bool, device=student_emb.device)
     NEG = torch.finfo(student_emb.dtype).min
@@ -39,10 +29,6 @@ def _same_modality_kl(student_emb, teacher_emb, tau_t, tau_s):
 
 
 def clip_loss(img, txt, logit_scale):
-    """
-    Standard symmetric InfoNCE (CLIP loss) on the student, using ground-truth
-    pairing: row i of img matches row i of txt. Labels are the diagonal.
-    """
     logits = logit_scale * (img @ txt.t())          # (B, B)
     labels = torch.arange(img.size(0), device=img.device)
     loss_i = F.cross_entropy(logits, labels)        # image -> text
@@ -54,22 +40,6 @@ def apple_distillation_loss(student_img, student_txt,
                             teacher_img, teacher_txt,
                             tau_teacher=0.07, tau_student=0.07,
                             lam=0.7, logit_scale=100.0, w_ii=0.0):
-    """
-    Args:
-        student_img/txt : (B,D_s) trainable student embeddings (unit-norm)
-        teacher_img/txt : (B,D_t) fixed teacher embeddings (unit-norm)
-        tau_teacher     : teacher temperature
-        tau_student     : student temperature
-        lam             : lambda — weight on distillation vs CLIP anchor
-        logit_scale     : scale for the CLIP loss (exp(learned) in real CLIP;
-                          a fixed value here unless you pass the student's own)
-        w_ii            : weight on an EXTRA image-image relational term. Apple's
-                          Eq.1 has NO such term (cross-modal only). We add it to
-                          directly optimise image-image geometry (I2I retrieval),
-                          the way MCIP did. w_ii=0 recovers the pure Apple loss.
-    Returns:
-        total, parts(dict)
-    """
     L_it = _cross_kl(student_img, student_txt, teacher_img, teacher_txt,
                      tau_teacher, tau_student)     # image -> text
     L_ti = _cross_kl(student_txt, student_img, teacher_txt, teacher_img,
