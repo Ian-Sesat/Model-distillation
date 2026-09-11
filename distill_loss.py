@@ -16,16 +16,7 @@ def _row_kl(student_S, teacher_S, tau):
 def distillation_loss(student_img, student_txt,
                       teacher_img, teacher_txt,
                       tau=0.07, w_ii=1.0, w_tt=1.0, w_it=1.0):
-    """
-    Args:
-        student_img/txt : (B,D) student embeddings (unit-norm, on-graph)
-        teacher_img/txt : (B,D) teacher embeddings (unit-norm, no grad)
-        tau             : temperature
-        w_ii/w_tt/w_it  : loss weights
-    Returns:
-        total : scalar loss
-        parts : dict of the three component losses (for logging)
-    """
+                          
     S_ii_s, S_tt_s, S_it_s = similarity_matrices(student_img, student_txt)
     S_ii_t, S_tt_t, S_it_t = similarity_matrices(teacher_img, teacher_txt)
 
