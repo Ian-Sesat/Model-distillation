@@ -1,28 +1,3 @@
-#!/usr/bin/env python
-"""
-distill_i2i_image_only.py
-===============================================================================
-IMAGE-ONLY distillation (Option B): teach a student's IMAGE tower to match a
-strong I2I teacher's image-image geometry, with the TEXT tower FROZEN.
-
-  Student:  any open_clip model (e.g. mobileclip2_s2), image tower trainable
-  Teacher:  cached image embeddings from a strong-I2I model (e.g. MCIP-SigLIP2)
-  Loss:     image-image relational KL (diagonal-masked) — the student's
-            image-to-image similarity structure is pulled toward the teacher's.
-            + a light CLIP anchor on ground-truth pairs to keep image-text
-            alignment from drifting (text tower frozen, so this only nudges
-            the image tower to stay compatible with the existing text tower).
-
-Why text is frozen: this isolates the I2I improvement. The teacher (MCIP-SigLIP2,
-75.43 I2I) is stronger on image retrieval than the student (S2, 72.57), so we
-transfer ONLY that image geometry. Freezing text guarantees T2I cannot be
-dragged down by this step (it can be restored/improved separately via
-realignment if desired).
-
-Teacher features are memory-mapped (large) and gathered per-batch, matching the
-RAM-safe pattern from the dual-teacher trainer.
-===============================================================================
-"""
 import os, argparse, numpy as np
 import torch
 import torch.nn.functional as F
