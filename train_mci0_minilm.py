@@ -1,17 +1,3 @@
-"""
-train_mci0_minilm.py
-===============================================================================
-Train the new MCi0 + MiniLM model by distilling from MCIP-SigLIP2.
-
-Reuses:
-  - the dual-teacher loss (MCIP-SigLIP2 as BOTH teachers: cross-modal T2I + image-image I2I)
-  - the MCIP-SigLIP2 teacher caches you already extracted (distill_teacher_mcip_siglip/)
-  - the mmap teacher-loading pattern (avoids the 31GB RAM overflow)
-
-Everything trainable: MCi0 + MiniLM + both projectors (Option B).
-More epochs than fine-tuning (default 20) since projectors are random and the two
-encoders were never trained together. LR warmup + cosine decay.
-"""
 import os, json, math, argparse
 import numpy as np
 from tqdm import tqdm
