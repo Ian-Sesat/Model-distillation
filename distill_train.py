@@ -57,17 +57,6 @@ def parse_args():
 
 
 def load_clip_library_student(clip_name, device):
-    """
-    Load an OpenAI CLIP-library model as a TRAINABLE student.
-
-    Differences from open_clip that must be handled:
-      * clip.load() puts the model in fp16 when device is CUDA. We call
-        .float() to train in fp32 (fp16 training is numerically fragile;
-        fp32 is the safe default and avoids overflow-to-NaN).
-      * tokenizer is clip.tokenize (not the open_clip tokenizer).
-      * preprocess transform comes from clip.load().
-    Returns: model, preprocess, tokenize_fn, emb_dim
-    """
     import clip
     model, preprocess = clip.load(clip_name, device=device, jit=False)
     model = model.float()                 # fp16 -> fp32 (avoid overflow NaNs)
