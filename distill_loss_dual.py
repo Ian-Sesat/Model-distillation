@@ -1,30 +1,3 @@
-"""
-distill_loss_dual.py  —  Dual-teacher distillation loss
----------------------------------------------------------------------------
-Two teachers, each supervising the axis it is strongest on:
-
-    S4  (T2I champion, 85.58 R@5)  -> cross-modal terms  (image<->text)
-    S2  (I2I strong,   72.57 mAP)  -> image-image term   (retrieval geometry)
-
-    L_Total = (1-lam) * L_CLIP_anchor
-            + lam * [ w_t2i * (L_it + L_ti  from S4)
-                    + w_i2i * (L_ii         from S2) ]
-
-Rationale: the student has ONE shared embedding space. S4's cross-modal
-geometry shapes text<->image alignment (lifts T2I); S2's image-image geometry
-shapes same-instance clustering (lifts I2I). Each teacher is applied only to
-its strong axis, so averaging a weak axis in (which would drag the result to
-the middle) is avoided.
-
-KL direction is KL(teacher || student): teacher is the fixed target, student
-follows. Reuses the exact _cross_kl and _same_modality_kl from the single-
-teacher Apple loss, so behaviour is identical per-term; only the teacher SOURCE
-differs per term.
-
-Embedding dims may differ across student (1024), S2 (512), S4 (768) — this is
-fine: every term operates on B x B similarity matrices (cosine structure),
-never on raw embeddings, so dimensionality is irrelevant.
-"""
 import torch
 import torch.nn.functional as F
 
@@ -73,15 +46,7 @@ def dual_teacher_loss(student_img, student_txt,
                       s2_img,                  # I2I reference (image-image only)
                       tau_teacher=0.07, tau_student=0.07,
                       lam=0.7, w_t2i=1.0, w_i2i=1.0, logit_scale=100.0):
-    """
-    Dual-teacher loss. All embeddings assumed L2-normalized.
-
-      student_img/txt : trainable student embeddings          (B, Ds)
-      s4_img/s4_txt   : S4 teacher embeddings (T2I reference)  (B, D4)
-      s2_img          : S2 teacher image embeddings (I2I ref)  (B, D2)
-
-    Returns (total_loss, parts_dict).
-    """
+                          
     # --- T2I: two cross-modal directions, teacher = S4 ---
     L_it = _cross_kl(student_img, student_txt, s4_img, s4_txt,
                      tau_teacher, tau_student)          # image -> text
