@@ -1,20 +1,9 @@
-"""
-A NEW small/fast vision-language model:
-    image tower: MCi0  (MobileCLIP2-S0's image encoder, via timm)  -> 1024-d
-    text  tower: all-MiniLM-L6-v2 (sentence-transformers)          ->  384-d
-    projectors : two trainable MLPs mapping each tower into a shared 512-d space
-
-Trained (encoders + projectors, all trainable) by distilling from MCIP-SigLIP2.
-"""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class Projector(nn.Module):
-    """Small MLP projector: in_dim -> hidden -> out_dim, with GELU + LayerNorm.
-    An MLP (not a bare linear) gives the alignment a bit more capacity, which
-    matters because MiniLM was trained for text-similarity, not image alignment."""
     def __init__(self, in_dim, out_dim, hidden=None):
         super().__init__()
         hidden = hidden or max(in_dim, out_dim)
@@ -29,9 +18,6 @@ class Projector(nn.Module):
 
 
 def masked_mean_pool(token_embeddings, attention_mask):
-    """Mean-pool MiniLM token embeddings over the sequence, respecting the mask.
-    token_embeddings: (B, T, 384); attention_mask: (B, T) of 0/1.
-    This is the standard sentence-transformers mean pooling."""
     mask = attention_mask.unsqueeze(-1).float()          # (B, T, 1)
     summed = (token_embeddings * mask).sum(dim=1)         # (B, 384)
     counts = mask.sum(dim=1).clamp(min=1e-9)              # (B, 1)
